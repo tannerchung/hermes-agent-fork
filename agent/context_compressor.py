@@ -5238,17 +5238,12 @@ Write only the summary body. Do not include any preamble or prefix."""
         self._last_summary_dropped_count = 0  # nothing actually dropped
         self._last_summary_fallback_used = False
         self._last_compress_aborted = True
-        failure_class, message = terminal_failure or (
-            "summary_generation_aborted",
-            "Summary generation failed — aborting compression (compression.abort_on_summary_failure=true). "
-            "%d message(s) preserved unchanged. Conversation is frozen until the next /compress or /new.",
-        )
+        failure_class, message = terminal_failure or ("summary_generation_aborted", "Summary generation failed — aborting compression (compression.abort_on_summary_failure=true). %d message(s) preserved unchanged. Conversation is frozen until the next /compress or /new.")
         telemetry["failure_class"] = failure_class
         # Roll back the self-heal rehydration so the aborted attempt is a true no-op (#57835). Only the
         # attempt still owning summary work may roll back: a detached stale attempt (reachable here via
         # the deterministic summary pin) must not revert the fallback's _previous_summary.
         from agent.conversation_compression import _caller_attempt_is_current
-
         if _caller_attempt_is_current(self):
             self._previous_summary = previous_summary_before_scan
         if not self.quiet_mode:
@@ -5261,8 +5256,7 @@ Write only the summary body. Do not include any preamble or prefix."""
         """Protected head with the compaction note on the system prompt and stale handoffs stripped."""
         compressed = []
         for i in range(compress_start):
-            # Head handoff already lives in _previous_summary: strip it (standalone dropped, merged
-            # keeps prior-tail text). Merged rows hold real user text — never blanket-skip.
+            # Head handoff already lives in _previous_summary: strip it (standalone dropped, merged keeps prior-tail text).
             msg = _fresh_compaction_message_copy(messages[i])
             if i == 0 and msg.get("role") == "system":
                 existing = msg.get("content")
@@ -5272,6 +5266,10 @@ Write only the summary body. Do not include any preamble or prefix."""
             stripped = self._strip_context_summary_handoff_message(msg)
             if stripped is not None:
                 compressed.append(stripped)
+        # Drop orphaned assistant/tool rows when stripping handoffs left no user turn in the head.
+        if not any(m.get("role") == "user" for m in compressed):
+            while compressed and compressed[-1].get("role") in {"assistant", "tool"}:
+                compressed.pop()
         return compressed
 
     def _fallback_summary_for_window(

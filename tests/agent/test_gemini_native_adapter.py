@@ -686,7 +686,7 @@ def test_gemini_3x_embeds_image_in_function_response_parts(model):
         tools=[],
         tool_choice=None,
     )
-    fr = request["contents"][1]["parts"][0]["functionResponse"]
+    fr = request["contents"][2]["parts"][0]["functionResponse"]
     assert "parts" in fr, "Gemini 3.x must embed image inlineData in functionResponse.parts"
     assert fr["parts"][0]["inlineData"]["mimeType"] == "image/png"
     assert fr["parts"][0]["inlineData"]["data"]
@@ -702,7 +702,7 @@ def test_gemini_2x_does_not_embed_image_parts():
         tools=[],
         tool_choice=None,
     )
-    fr = request["contents"][1]["parts"][0]["functionResponse"]
+    fr = request["contents"][2]["parts"][0]["functionResponse"]
     assert "parts" not in fr
 
 
@@ -735,7 +735,7 @@ def test_text_only_tool_result_has_no_parts():
         tools=[],
         tool_choice=None,
     )
-    fr = request["contents"][1]["parts"][0]["functionResponse"]
+    fr = request["contents"][2]["parts"][0]["functionResponse"]
     assert "parts" not in fr
 
 
@@ -977,3 +977,44 @@ def test_long_decode_continues_across_hops_and_reports_first_hop_prompt(monkeypa
     assert [c.choices[0].finish_reason for c in finishes] == ["stop"]  # CONTINUATION is not the end
     assert "".join(c.choices[0].delta.content or "" for c in chunks) == "part one part two"
     assert (finishes[0].usage.prompt_tokens, finishes[0].usage.initial_prompt_tokens) == (32968, 100)
+
+
+def test_build_gemini_contents_prepends_user_turn_when_first_turn_is_model():
+    """Gemini rejects multi-turn requests whose first content entry has role='model'
+    (HTTP 400 INVALID_ARGUMENT). When context compaction drops an initiating user
+    prompt, _build_gemini_contents must ensure contents[0].role == 'user'."""
+    from agent.gemini_native_adapter import build_gemini_request
+
+    messages = [
+        {"role": "system", "content": "You are Hermes."},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "terminal", "arguments": '{"command":"ls"}'},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "name": "terminal",
+            "content": "README.md",
+        },
+        {"role": "user", "content": "What did ls output?"},
+    ]
+    request = build_gemini_request(
+        messages=messages,
+        model="gemini-3.8-flash",
+        tools=[],
+        tool_choice=None,
+    )
+    assert request["contents"][0]["role"] == "user"
+    assert request["contents"][1]["role"] == "model"
+    assert "functionCall" in request["contents"][1]["parts"][0]
+    assert request["contents"][2]["role"] == "user"
+    assert "functionResponse" in request["contents"][2]["parts"][0]
+

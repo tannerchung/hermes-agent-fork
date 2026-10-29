@@ -458,7 +458,15 @@ def _build_gemini_contents(
         if parts:
             contents.append({"role": "model" if role == "assistant" else "user", "parts": parts})
     joined_system = "\n".join(part for part in system_text_parts if part).strip()
-    return _merge_alternating(contents), ({"role": "system", "parts": [{"text": joined_system}]} if joined_system else None)
+    merged = _merge_alternating(contents)
+    # Gemini requires the first turn in a multi-turn request to be a user turn,
+    # never a model turn with functionCall (HTTP 400 INVALID_ARGUMENT). Context
+    # compaction can leave orphaned assistant/tool turns at the head when their
+    # initiating user prompt was dropped — ensure the sequence always opens with
+    # a user turn.
+    if merged and merged[0]["role"] == "model":
+        merged.insert(0, {"role": "user", "parts": [{"text": "Continue"}]})
+    return merged, ({"role": "system", "parts": [{"text": joined_system}]} if joined_system else None)
 
 
 def _function_declaration(tool: Any, *, json_schema: bool = False) -> Optional[dict[str, Any]]:
